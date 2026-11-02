@@ -47,6 +47,7 @@ export class TicketingService {
     await this.reservations.expirePending();
     const event = await this.events.find(eventId);
     if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Événement introuvable.');
+    if (event.status === 'CANCELLED') throw new AppError(409, 'EVENT_CANCELLED', 'Cet événement est annulé : aucune nouvelle réservation n’est acceptée.');
     if (event.available <= 0) throw new AppError(409, 'SOLD_OUT', 'Il ne reste plus de place.');
     if (this.config.reservationHoldMs > 0) await sleep(this.config.reservationHoldMs);
     const expiresAt = new Date(Date.now() + this.config.reservationTtlMinutes * 60_000);

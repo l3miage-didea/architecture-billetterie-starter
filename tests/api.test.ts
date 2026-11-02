@@ -77,6 +77,18 @@ test('les erreurs distinguent entrée invalide, événement absent et vente comp
   assert.equal(full.json().error.code, 'SOLD_OUT');
 });
 
+test('un événement annulé refuse une nouvelle demande sans créer de réservation', async () => {
+  const before = await app.inject({ method: 'GET', url: '/api/events/concert-annule' });
+  assert.equal(before.json().event.status, 'CANCELLED');
+  const refused = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'concert-annule', customerRef: 'client-test' } });
+  assert.equal(refused.statusCode, 409);
+  assert.equal(refused.json().error.code, 'EVENT_CANCELLED');
+  const stored = await pool.query("SELECT count(*)::int AS total FROM reservations WHERE event_id = 'concert-annule'");
+  assert.equal(stored.rows[0].total, 0);
+  const after = await app.inject({ method: 'GET', url: '/api/events/concert-annule' });
+  assert.equal(after.json().event.available, before.json().event.available);
+});
+
 test('un identifiant de réservation mal formé reçoit une erreur utilisateur', async () => {
   const state = await app.inject({ method: 'GET', url: '/api/reservations/invalide' });
   assert.equal(state.statusCode, 400);

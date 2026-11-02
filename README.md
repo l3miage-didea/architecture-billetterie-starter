@@ -53,7 +53,7 @@ Pour modifier la durée ou la pression de charge, définir les variables `LOAD_S
 | `POST /api/reservations/:id/checkout` | Paiement fictif avec `{ "scenario": "success" }`, `failure` ou `slow` |
 | `GET /health` | Santé de l'application et accès à la base |
 
-Les erreurs JSON ont la forme `{ "error": { "code": "…", "message": "…" } }`. La réservation peut renvoyer `400` (entrée invalide), `404` (événement absent) ou `409` (plus de place). Le checkout peut également renvoyer `410` (réservation expirée). Une erreur technique retourne `503`.
+Les erreurs JSON ont la forme `{ "error": { "code": "…", "message": "…" } }`. La réservation peut renvoyer `400` (entrée invalide), `404` (événement absent) ou `409` (plus de place `SOLD_OUT`, ou événement annulé `EVENT_CANCELLED`). Le checkout peut également renvoyer `410` (réservation expirée). Une erreur technique retourne `503`.
 
 ## Progression pédagogique
 

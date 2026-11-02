@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "migrate": "tsx src/migrate.ts",
-    "test": "tsx --test tests/api.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests/api.test.ts tests/auth.test.ts",
     "test:challenge": "tsx --test tests/concurrency.challenge.ts",
     "load": "node scripts/load.mjs"
   },
@@ -17,6 +17,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.5",
     "fastify": "^5.12.5",
     "pg": "^8.23.1"
   },

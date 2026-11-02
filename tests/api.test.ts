@@ -2,13 +2,24 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { Pool } from 'pg';
 import { buildApp } from '../src/app.js';
+import { ALICE, BOB, baseConfig, loginAs } from './helpers.js';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const app = buildApp(pool, { reservationTtlMinutes: 15, paymentSlowMs: 1, reservationHoldMs: 0 });
+const app = buildApp(pool, baseConfig);
+let alice: Record<string, string>;
+let bob: Record<string, string>;
 
-before(async () => { await app.ready(); });
+before(async () => {
+  await app.ready();
+  alice = await loginAs(app, ALICE);
+  bob = await loginAs(app, BOB);
+});
 beforeEach(async () => { await pool.query('TRUNCATE payment_attempts, reservations'); });
 after(async () => { await app.close(); await pool.end(); });
+
+function reserve(cookies: Record<string, string>, eventId: string) {
+  return app.inject({ method: 'POST', url: '/api/reservations', cookies, payload: { eventId } });
+}
 
 test('le catalogue et la page d’accueil sont accessibles', async () => {
   const catalogue = await app.inject({ method: 'GET', url: '/api/events' });
@@ -21,58 +32,58 @@ test('le catalogue et la page d’accueil sont accessibles', async () => {
 });
 
 test('une réservation payée devient confirmée et occupe la place', async () => {
-  const created = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-test' } });
+  const created = await reserve(alice, 'atelier-une-place');
   assert.equal(created.statusCode, 201);
   assert.equal(created.json().reservation.status, 'PENDING');
   const id = created.json().reservation.id;
-  const paid = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, payload: { scenario: 'success' } });
+  const paid = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, cookies: alice, payload: { scenario: 'success' } });
   assert.equal(paid.statusCode, 200);
   assert.equal(paid.json().reservation.status, 'CONFIRMED');
   assert.equal(paid.json().paymentAttempt.status, 'SUCCEEDED');
-  const state = await app.inject({ method: 'GET', url: `/api/reservations/${id}` });
+  const state = await app.inject({ method: 'GET', url: `/api/reservations/${id}`, cookies: alice });
   assert.equal(state.json().reservation.paymentAttempts.length, 1);
   const event = await app.inject({ method: 'GET', url: '/api/events/atelier-une-place' });
   assert.equal(event.json().event.available, 0);
 });
 
 test('un paiement refusé libère la place', async () => {
-  const first = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-a' } });
+  const first = await reserve(alice, 'atelier-une-place');
   const id = first.json().reservation.id;
-  const denied = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, payload: { scenario: 'failure' } });
+  const denied = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, cookies: alice, payload: { scenario: 'failure' } });
   assert.equal(denied.json().reservation.status, 'FAILED');
-  const second = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-b' } });
+  const second = await reserve(bob, 'atelier-une-place');
   assert.equal(second.statusCode, 201);
 });
 
 test('une réponse lente conserve un état en attente', async () => {
-  const created = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-test' } });
+  const created = await reserve(alice, 'atelier-une-place');
   const id = created.json().reservation.id;
-  const checkout = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, payload: { scenario: 'slow' } });
+  const checkout = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, cookies: alice, payload: { scenario: 'slow' } });
   assert.equal(checkout.statusCode, 200);
   assert.equal(checkout.json().reservation.status, 'PENDING');
   assert.equal(checkout.json().paymentAttempt.status, 'PENDING');
 });
 
 test('une réservation expirée libère la place et ne peut plus être payée', async () => {
-  const created = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-a' } });
+  const created = await reserve(alice, 'atelier-une-place');
   const id = created.json().reservation.id;
   await pool.query("UPDATE reservations SET expires_at = now() - interval '1 second' WHERE id = $1", [id]);
-  const state = await app.inject({ method: 'GET', url: `/api/reservations/${id}` });
+  const state = await app.inject({ method: 'GET', url: `/api/reservations/${id}`, cookies: alice });
   assert.equal(state.json().reservation.status, 'EXPIRED');
-  const checkout = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, payload: { scenario: 'success' } });
+  const checkout = await app.inject({ method: 'POST', url: `/api/reservations/${id}/checkout`, cookies: alice, payload: { scenario: 'success' } });
   assert.equal(checkout.statusCode, 410);
-  const next = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-b' } });
+  const next = await reserve(bob, 'atelier-une-place');
   assert.equal(next.statusCode, 201);
 });
 
 test('les erreurs distinguent entrée invalide, événement absent et vente complète', async () => {
-  const invalid = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: '', customerRef: '' } });
+  const invalid = await reserve(alice, '');
   assert.equal(invalid.statusCode, 400);
   assert.equal(invalid.json().error.code, 'INVALID_INPUT');
-  const missing = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'inconnu', customerRef: 'client' } });
+  const missing = await reserve(alice, 'inconnu');
   assert.equal(missing.statusCode, 404);
-  await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-a' } });
-  const full = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'atelier-une-place', customerRef: 'client-b' } });
+  await reserve(alice, 'atelier-une-place');
+  const full = await reserve(bob, 'atelier-une-place');
   assert.equal(full.statusCode, 409);
   assert.equal(full.json().error.code, 'SOLD_OUT');
 });
@@ -80,7 +91,7 @@ test('les erreurs distinguent entrée invalide, événement absent et vente comp
 test('un événement annulé refuse une nouvelle demande sans créer de réservation', async () => {
   const before = await app.inject({ method: 'GET', url: '/api/events/concert-annule' });
   assert.equal(before.json().event.status, 'CANCELLED');
-  const refused = await app.inject({ method: 'POST', url: '/api/reservations', payload: { eventId: 'concert-annule', customerRef: 'client-test' } });
+  const refused = await reserve(alice, 'concert-annule');
   assert.equal(refused.statusCode, 409);
   assert.equal(refused.json().error.code, 'EVENT_CANCELLED');
   const stored = await pool.query("SELECT count(*)::int AS total FROM reservations WHERE event_id = 'concert-annule'");
@@ -90,10 +101,10 @@ test('un événement annulé refuse une nouvelle demande sans créer de réserva
 });
 
 test('un identifiant de réservation mal formé reçoit une erreur utilisateur', async () => {
-  const state = await app.inject({ method: 'GET', url: '/api/reservations/invalide' });
+  const state = await app.inject({ method: 'GET', url: '/api/reservations/invalide', cookies: alice });
   assert.equal(state.statusCode, 400);
   assert.equal(state.json().error.code, 'INVALID_INPUT');
-  const checkout = await app.inject({ method: 'POST', url: '/api/reservations/invalide/checkout', payload: { scenario: 'success' } });
+  const checkout = await app.inject({ method: 'POST', url: '/api/reservations/invalide/checkout', cookies: alice, payload: { scenario: 'success' } });
   assert.equal(checkout.statusCode, 400);
   assert.equal(checkout.json().error.code, 'INVALID_INPUT');
 });

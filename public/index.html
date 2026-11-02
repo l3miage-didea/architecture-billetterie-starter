@@ -34,15 +34,33 @@
             <h2 id="events-title">Événements</h2>
             <button id="refresh-events" class="text-button" type="button">Actualiser les places</button>
           </div>
-          <label class="field-label" for="customer-ref">Identifiant visiteur fictif</label>
-          <input id="customer-ref" name="customer-ref" type="text" maxlength="80" value="visiteur-01" autocomplete="off">
+          <div id="account" class="account-box">
+            <form id="login-form" class="login-form">
+              <p class="account-invite">Connectez-vous pour réserver et acheter un billet.</p>
+              <div class="login-fields">
+                <div>
+                  <label class="field-label" for="login">Identifiant</label>
+                  <input id="login" name="login" type="text" autocomplete="username" required>
+                </div>
+                <div>
+                  <label class="field-label" for="password">Mot de passe</label>
+                  <input id="password" name="password" type="password" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="login-button">Se connecter</button>
+              </div>
+            </form>
+            <div id="account-info" class="account-info" hidden>
+              <span>Connecté en tant que <strong id="account-name"></strong></span>
+              <button id="logout" class="text-button" type="button">Se déconnecter</button>
+            </div>
+          </div>
           <div id="events" class="event-list" aria-live="polite"><p class="loading">Chargement des événements…</p></div>
         </section>
 
         <aside class="status-panel" aria-labelledby="status-title">
           <h2 id="status-title">Ma réservation</h2>
           <p class="panel-copy">L’état affiché ici est celui enregistré par le système.</p>
-          <div id="reservation-state" class="reservation-state" aria-live="polite">Choisissez un événement pour commencer.</div>
+          <div id="reservation-state" class="reservation-state" aria-live="polite">Connectez-vous pour commencer l’achat.</div>
           <div id="checkout-controls" class="checkout-controls" hidden>
             <label class="field-label" for="scenario">Scénario de paiement fictif</label>
             <select id="scenario">

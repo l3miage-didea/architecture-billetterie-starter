@@ -37,6 +37,13 @@ h2 { margin-bottom: 16px; font-family: Georgia, 'Times New Roman', serif; font-s
 .text-button { padding: 0; border: 0; background: transparent; color: var(--blue); text-decoration: underline; text-underline-offset: 3px; }
 .field-label { display: block; margin-bottom: 7px; font-size: 14px; font-weight: 700; }
 input, select { width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid #9cabba; border-radius: 0; background: var(--white); color: var(--ink); }
+.account-box { padding: 18px; border-left: 4px solid var(--blue); background: #f6f8fa; }
+.account-invite { margin-bottom: 12px; font-weight: 700; }
+.login-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.login-button { min-height: 44px; padding: 0 18px; border: 1px solid var(--blue); background: var(--blue); color: white; font-weight: 700; }
+.login-button:hover:not(:disabled) { background: var(--blue-dark); }
+.account-info { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+[hidden] { display: none !important; }
 .event-list { margin-top: 22px; border-top: 1px solid var(--line); }
 .event-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; padding: 24px 0; border-bottom: 1px solid var(--line); }
 .event-date { margin-bottom: 5px; color: var(--blue); font-size: 14px; font-weight: 700; }
@@ -61,4 +68,4 @@ input, select { width: 100%; min-height: 44px; padding: 9px 12px; border: 1px so
 .loading { padding-top: 16px; color: var(--muted); }
 footer { padding: 28px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 @media (max-width: 760px) { .page-shell { padding: 0 18px; } .topbar { min-height: 70px; } .brand { font-size: 24px; } .demo-label { font-size: 12px; } .intro { grid-template-columns: 1fr; gap: 28px; padding: 42px 0; } .ticket-stub { display: none; } .content-grid { grid-template-columns: 1fr; } .event-section, .status-panel { padding: 22px; } }
-@media (max-width: 470px) { .section-heading { display: block; } .text-button { margin-bottom: 10px; } .event-card { grid-template-columns: 1fr; } .event-card button { width: 100%; } }
+@media (max-width: 470px) { .login-fields { grid-template-columns: 1fr; } .section-heading { display: block; } .text-button { margin-bottom: 10px; } .event-card { grid-template-columns: 1fr; } .event-card button { width: 100%; } }

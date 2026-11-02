@@ -11,6 +11,9 @@ const app = buildApp(pool, {
   reservationTtlMinutes: numberFromEnv('RESERVATION_TTL_MINUTES', 15),
   paymentSlowMs: numberFromEnv('PAYMENT_SLOW_MS', 2000),
   reservationHoldMs: numberFromEnv('LAB_RESERVATION_PAUSE_MS', 75),
+  sessionTtlMinutes: numberFromEnv('SESSION_TTL_MINUTES', 30),
+  // Démonstration locale en HTTP : activer COOKIE_SECURE=true derrière HTTPS.
+  cookieSecure: process.env.COOKIE_SECURE === 'true',
 });
 
 async function stop() {

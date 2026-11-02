@@ -3,19 +3,46 @@ const feedback = document.querySelector('#feedback');
 const stateElement = document.querySelector('#reservation-state');
 const controls = document.querySelector('#checkout-controls');
 const checkoutButton = document.querySelector('#checkout');
+const loginForm = document.querySelector('#login-form');
+const accountInfo = document.querySelector('#account-info');
 let currentReservationId = null;
+let currentUser = null;
 
+// Le cookie de session est envoyé automatiquement par le navigateur (même origine).
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
   });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error?.message || 'La demande n’a pas abouti.');
+  const body = response.status === 204 ? null : await response.json();
+  if (!response.ok) {
+    const error = new Error(body?.error?.message || 'La demande n’a pas abouti.');
+    error.code = body?.error?.code;
+    if (error.code === 'AUTH_REQUIRED' && path !== '/api/auth/me') setUser(null);
+    throw error;
+  }
   return body;
 }
 
 function showFeedback(message = '') { feedback.textContent = message; }
+
+function resetReservation(message) {
+  currentReservationId = null;
+  document.querySelector('#lookup-id').value = '';
+  stateElement.textContent = message;
+  controls.hidden = true;
+}
+
+// Affichage seulement : la protection réelle est faite par l'API.
+function setUser(user) {
+  currentUser = user;
+  loginForm.hidden = Boolean(user);
+  accountInfo.hidden = !user;
+  document.querySelector('#account-name').textContent = user ? user.login : '';
+  if (!user) resetReservation('Connectez-vous pour commencer l’achat.');
+  else if (!currentReservationId) resetReservation('Choisissez un événement pour commencer.');
+  loadEvents();
+}
 
 function displayReservation(reservation) {
   currentReservationId = reservation.id;
@@ -64,8 +91,8 @@ async function loadEvents() {
       info.append(date, title, venue, availability);
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = 'Réserver';
-      button.disabled = event.available <= 0;
+      button.textContent = currentUser ? 'Réserver' : 'Connexion requise';
+      button.disabled = event.available <= 0 || !currentUser;
       button.addEventListener('click', () => reserve(event.id, button));
       card.append(info, button);
       eventsElement.append(card);
@@ -80,15 +107,38 @@ async function reserve(eventId, button) {
   showFeedback();
   button.disabled = true;
   try {
-    const customerRef = document.querySelector('#customer-ref').value.trim();
     const { reservation } = await api('/api/reservations', {
-      method: 'POST', body: JSON.stringify({ eventId, customerRef }),
+      method: 'POST', body: JSON.stringify({ eventId }),
     });
     displayReservation(reservation);
     await loadEvents();
-  } catch (error) { showFeedback(error.message); }
-  finally { button.disabled = false; }
+  } catch (error) {
+    showFeedback(error.message);
+    button.disabled = !currentUser;
+  }
 }
+
+loginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  showFeedback();
+  try {
+    const { user } = await api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        login: document.querySelector('#login').value.trim(),
+        password: document.querySelector('#password').value,
+      }),
+    });
+    document.querySelector('#password').value = '';
+    setUser(user);
+  } catch (error) { showFeedback(error.message); }
+});
+
+document.querySelector('#logout').addEventListener('click', async () => {
+  showFeedback();
+  try { await api('/api/auth/logout', { method: 'POST' }); }
+  finally { setUser(null); }
+});
 
 checkoutButton.addEventListener('click', async () => {
   if (!currentReservationId) return;
@@ -119,4 +169,4 @@ document.querySelector('#lookup-form').addEventListener('submit', async event =>
 });
 
 document.querySelector('#refresh-events').addEventListener('click', loadEvents);
-loadEvents();
+api('/api/auth/me').then(({ user }) => setUser(user)).catch(() => setUser(null));

@@ -2,19 +2,22 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { buildApp } from '../src/app.js';
+import { ALICE, BOB, baseConfig, loginAs } from './helpers.js';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const app = buildApp(pool, { reservationTtlMinutes: 15, paymentSlowMs: 1, reservationHoldMs: 120 });
+const app = buildApp(pool, { ...baseConfig, reservationHoldMs: 120 });
+let sessions: Record<string, string>[] = [];
 before(async () => {
   await app.ready();
   await pool.query('TRUNCATE payment_attempts, reservations');
+  sessions = [await loginAs(app, ALICE), await loginAs(app, BOB)];
 });
 after(async () => { await app.close(); await pool.end(); });
 
 test('une seule demande doit occuper la dernière place', async () => {
-  const requests = ['client-a', 'client-b'].map(customerRef => app.inject({
-    method: 'POST', url: '/api/reservations',
-    payload: { eventId: 'atelier-une-place', customerRef },
+  const requests = sessions.map(cookies => app.inject({
+    method: 'POST', url: '/api/reservations', cookies,
+    payload: { eventId: 'atelier-une-place' },
   }));
   const responses = await Promise.all(requests);
   const accepted = responses.filter(response => response.statusCode === 201).length;

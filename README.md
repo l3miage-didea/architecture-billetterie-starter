@@ -17,11 +17,22 @@ docker compose ps
 docker compose logs -f app
 ```
 
-L'application démarre avec trois événements fictifs, dont un événement d'une seule place pour les expériences de concurrence. Les données sont conservées dans un volume Docker entre deux démarrages.
+L'application démarre avec quatre événements fictifs, dont un événement d'une seule place pour les expériences de concurrence et un événement annulé. Les données sont conservées dans un volume Docker entre deux démarrages.
+
+### Comptes de démonstration
+
+Le catalogue est public. Réserver, consulter une réservation et payer demandent une connexion. Deux comptes fictifs sont créés au démarrage :
+
+| Identifiant | Mot de passe |
+| --- | --- |
+| `alice` | `alice-demo` |
+| `bob` | `bob-demo` |
+
+Les mots de passe sont stockés hachés avec `scrypt` et un sel aléatoire par compte. La session est conservée **en mémoire** dans le processus de l'application (30 minutes par défaut, variable `SESSION_TTL_MINUTES`) : un redémarrage de l'application déconnecte tous les utilisateurs. Le cookie `sid` est `HttpOnly`, `SameSite=Lax`, `Path=/` ; définir `COOKIE_SECURE=true` derrière HTTPS.
 
 ## Parcours de démonstration
 
-1. Choisir un événement et saisir un identifiant visiteur **fictif**.
+1. Se connecter avec un compte de démonstration, puis choisir un événement.
 2. Réserver une place. La réservation est `PENDING` et retient la place pendant 15 minutes par défaut.
 3. Déclencher le paiement simulé : `success` confirme, `failure` refuse et libère la place, `slow` laisse le résultat en attente.
 4. Copier l'identifiant de réservation et consulter son état dans le panneau de suivi.
@@ -44,16 +55,21 @@ Pour modifier la durée ou la pression de charge, définir les variables `LOAD_S
 
 ## API
 
-| Méthode et route | Usage |
-| --- | --- |
-| `GET /api/events` | Liste et places affichées |
-| `GET /api/events/:id` | Détail d'un événement |
-| `POST /api/reservations` | Réserver une place avec `{ "eventId": "festival-lumieres", "customerRef": "demo-1" }` |
-| `GET /api/reservations/:id` | État et tentatives de paiement |
-| `POST /api/reservations/:id/checkout` | Paiement fictif avec `{ "scenario": "success" }`, `failure` ou `slow` |
-| `GET /health` | Santé de l'application et accès à la base |
+| Méthode et route | Accès | Usage |
+| --- | --- | --- |
+| `POST /api/auth/login` | public | Connexion avec `{ "login": "alice", "password": "alice-demo" }` ; renvoie l'utilisateur et le cookie de session |
+| `GET /api/auth/me` | connecté | Utilisateur courant (`id`, `login`) |
+| `POST /api/auth/logout` | public | Invalide la session côté serveur, retire le cookie, renvoie `204` |
+| `GET /api/events` | public | Liste et places affichées |
+| `GET /api/events/:id` | public | Détail d'un événement |
+| `POST /api/reservations` | connecté | Réserver une place avec `{ "eventId": "festival-lumieres" }` ; l'auteur est l'utilisateur connecté |
+| `GET /api/reservations/:id` | propriétaire | État et tentatives de paiement |
+| `POST /api/reservations/:id/checkout` | propriétaire | Paiement fictif avec `{ "scenario": "success" }`, `failure` ou `slow` |
+| `GET /health` | public | Santé de l'application et accès à la base |
 
-Les erreurs JSON ont la forme `{ "error": { "code": "…", "message": "…" } }`. La réservation peut renvoyer `400` (entrée invalide), `404` (événement absent) ou `409` (plus de place `SOLD_OUT`, ou événement annulé `EVENT_CANCELLED`). Le checkout peut également renvoyer `410` (réservation expirée). Une erreur technique retourne `503`.
+Les erreurs JSON ont la forme `{ "error": { "code": "…", "message": "…" } }`. Une route protégée sans session valide renvoie `401 AUTH_REQUIRED` ; la réservation d'un autre compte renvoie `403 RESERVATION_FORBIDDEN` ; une connexion refusée renvoie `401 INVALID_CREDENTIALS`. La réservation peut renvoyer `400` (entrée invalide), `404` (événement absent) ou `409` (plus de place `SOLD_OUT`, ou événement annulé `EVENT_CANCELLED`). Le checkout peut également renvoyer `410` (réservation expirée). Une erreur technique retourne `503`.
+
+Le champ persisté `customerRef` contient désormais l'identifiant du compte connecté. Une valeur envoyée dans le corps de la requête est ignorée.
 
 ## Progression pédagogique
 
@@ -70,7 +86,10 @@ src/services/       décisions et orchestration métier
 src/repositories/   accès PostgreSQL
 src/integrations/   paiement fictif
 db/                 schéma et données de démonstration
-tests/              parcours ordinaires et défi séparé
+src/services/AuthService.ts   connexion et reconnaissance de session
+src/sessions/       sessions en mémoire
+src/security/       hachage des mots de passe
+tests/              parcours ordinaires, authentification et défi séparé
 scripts/            mesure de charge simple
 ```
 

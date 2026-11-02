@@ -1,21 +1,36 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import Fastify from 'fastify';
+import cookie from '@fastify/cookie';
+import Fastify, { type FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { AppError } from './errors.js';
 import { PaymentSimulator } from './integrations/PaymentSimulator.js';
 import { EventRepository } from './repositories/EventRepository.js';
 import { PaymentAttemptRepository } from './repositories/PaymentAttemptRepository.js';
 import { ReservationRepository } from './repositories/ReservationRepository.js';
+import { UserRepository } from './repositories/UserRepository.js';
+import { AuthService } from './services/AuthService.js';
 import { TicketingService, type TicketingConfig } from './services/TicketingService.js';
+import { SessionStore } from './sessions/SessionStore.js';
 import type { PaymentScenario } from './types.js';
+
+export interface AppConfig extends TicketingConfig {
+  sessionTtlMinutes: number;
+  cookieSecure: boolean;
+  // Horloge des sessions : remplaçable dans les tests pour simuler une expiration.
+  now?: () => number;
+}
+
+export const SESSION_COOKIE = 'sid';
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-export function buildApp(pool: Pool, config: TicketingConfig) {
+export function buildApp(pool: Pool, config: AppConfig) {
   const app = Fastify({ logger: true });
+  app.register(cookie);
+
   const service = new TicketingService(
     new EventRepository(pool),
     new ReservationRepository(pool),
@@ -23,6 +38,18 @@ export function buildApp(pool: Pool, config: TicketingConfig) {
     new PaymentSimulator(config.paymentSlowMs),
     config,
   );
+  const sessionTtlMs = config.sessionTtlMinutes * 60_000;
+  const auth = new AuthService(new UserRepository(pool), new SessionStore(sessionTtlMs, config.now));
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    path: '/',
+    secure: config.cookieSecure,
+    maxAge: Math.floor(sessionTtlMs / 1000),
+  };
+
+  // Identité de la requête : uniquement la session reconnue côté serveur.
+  const currentUser = (request: FastifyRequest) => auth.authenticate(request.cookies[SESSION_COOKIE]);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof AppError) {
@@ -36,19 +63,38 @@ export function buildApp(pool: Pool, config: TicketingConfig) {
     await pool.query('SELECT 1');
     return reply.send({ status: 'ok' });
   });
+
+  app.post('/api/auth/login', async (request, reply) => {
+    const body = asRecord(request.body);
+    const login = typeof body.login === 'string' ? body.login.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const { user, sessionId } = await auth.login(login, password);
+    auth.logout(request.cookies[SESSION_COOKIE]);
+    return reply.setCookie(SESSION_COOKIE, sessionId, cookieOptions).send({ user });
+  });
+  app.get('/api/auth/me', async request => ({ user: await currentUser(request) }));
+  app.post('/api/auth/logout', async (request, reply) => {
+    auth.logout(request.cookies[SESSION_COOKIE]);
+    return reply.clearCookie(SESSION_COOKIE, { path: '/' }).code(204).send();
+  });
+
   app.get('/api/events', async () => ({ events: await service.listEvents() }));
   app.get<{ Params: { id: string } }>('/api/events/:id', async request => ({ event: await service.getEvent(request.params.id) }));
   app.post('/api/reservations', async (request, reply) => {
+    const user = await currentUser(request);
     const body = asRecord(request.body);
     const eventId = typeof body.eventId === 'string' ? body.eventId : '';
-    const customerRef = typeof body.customerRef === 'string' ? body.customerRef : '';
-    return reply.code(201).send({ reservation: await service.reserve(eventId, customerRef) });
+    return reply.code(201).send({ reservation: await service.reserve(eventId, user.id) });
   });
-  app.get<{ Params: { id: string } }>('/api/reservations/:id', async request => ({ reservation: await service.getReservation(request.params.id) }));
+  app.get<{ Params: { id: string } }>('/api/reservations/:id', async request => {
+    const user = await currentUser(request);
+    return { reservation: await service.getReservation(request.params.id, user.id) };
+  });
   app.post<{ Params: { id: string } }>('/api/reservations/:id/checkout', async request => {
+    const user = await currentUser(request);
     const body = asRecord(request.body);
     const scenario = typeof body.scenario === 'string' ? body.scenario as PaymentScenario : 'success';
-    return service.checkout(request.params.id, scenario);
+    return service.checkout(request.params.id, scenario, user.id);
   });
 
   for (const [route, file, type] of [

@@ -22,6 +22,11 @@ export interface ReservationView {
   expiresAt: string;
 }
 
+export interface UserView {
+  id: string;
+  login: string;
+}
+
 export interface PaymentAttemptView {
   id: string;
   reservationId: string;
